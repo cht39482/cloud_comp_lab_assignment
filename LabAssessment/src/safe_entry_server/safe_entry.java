@@ -13,7 +13,7 @@ public interface safe_entry extends java.rmi.Remote {
 	public boolean checkOut(JSONArray users) throws RemoteException;
 	public boolean checkLogin(String name, String password) throws RemoteException;
 	public boolean declareLocationUnsafe(String locationName, String dateTime) throws RemoteException;
-	public boolean trackCovid(RMIClientIntf client, String nric) throws RemoteException;
+//	public boolean trackCovid(RMIClientIntf client, String nric) throws RemoteException;
 	public void informUsers(RMIClientIntf client, String nric) throws RemoteException;
 	public JSONArray getInfo() throws RemoteException;
 	public JSONArray getInfo(String name) throws RemoteException;
