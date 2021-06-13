@@ -8,16 +8,13 @@ import java.util.Scanner;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import org.json.simple.JSONObject;
+import org.json.simple.*;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
-import safe_entry_server.JSONArray;
-import safe_entry_server.JSONParser;
-import safe_entry_server.ParseException;
-import safe_entry_server.RMIClientIntf;
-import safe_entry_server.safe_entry;
-import safe_entry_server.safe_entry_impl;
+import safe_entry_server.*;
 
-public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implements RMIClientIntf {
+public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implements RMIClientIntf{
 	private static Scanner scan = null;
 
 	public SafeEntry_Client() throws RemoteException {
@@ -38,7 +35,7 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 		}
 		try {
 			SafeEntry_Client sc = new SafeEntry_Client();
-			safe_entry_impl se=(safe_entry_impl)Naming.lookup("rmi://" + reg_host + ":" + reg_port + "/SafeEntryService");
+			safe_entry se=(safe_entry)Naming.lookup("rmi://" + reg_host + ":" + reg_port + "/SafeEntryService");
 			System.out.println("Connected to server");
 			
 		for (;;) {
@@ -103,7 +100,7 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 					JSONObject entry_details = new JSONObject();
 					entry_details.put("name", input_name);
 					entry_details.put("nric", input_nric);
-					se.trackCovid(sc, input_nric);
+					se.informUsers(sc, input_nric);
 					entry_details.put("location", input_location);
 					if (checkin_checkout == 1) {
 						entry_details.put("check_in", getTime());
