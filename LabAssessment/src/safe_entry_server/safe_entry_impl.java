@@ -70,7 +70,6 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 				users=(JSONArray) parser.parse(fr);
 				
 			}
-			System.out.println("Reached here");
 			users.add(user);
 			
 //			System.out.print(users);
@@ -108,7 +107,7 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 					for(int i=users.size()-1;i>0;i--) {
 						
 						JSONObject user_record=(JSONObject)users.get(i);
-						if(user_record.get("nric").equals(user.get("nric"))&& user_record.get("location").equals(user.get("location"))) {
+						if(user_record.get("nric").equals(user.get("nric"))&& user_record.get("location").equals(user.get("location")) && user_record.get("check_out").equals("null")){
 							System.out.println(user_record.get("nric"));
 							
 							user_record.put("check_out",java.time.LocalDateTime.now().toString());
@@ -194,7 +193,7 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 						for(int i=user_records.size()-1;i>0;i--) {
 							JSONObject user=(JSONObject) o;
 							JSONObject user_record=(JSONObject) user_records.get(i);
-							if(user_record.get("nric").equals((user.get("nric")))) {
+							if(user_record.get("nric").equals((user.get("nric")))&& user_record.get(i).equals("null")) {
 								user_record.put("check_out",user.get("check_out"));
 								foundUser=true;
 							}
@@ -323,7 +322,9 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 		JSONParser parser=new JSONParser();
 		JSONObject covid_record=new JSONObject();
 		covid_record.put("location", locationName);
-		covid_record.put("date_time", dateTime);
+		DateTimeFormatter dt=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+		LocalDateTime ldt=LocalDateTime.parse(dateTime, dt);
+		covid_record.put("date_time", ldt.toString());
 		String filename=Paths.get(records_dir.toString(),"declared_covid_locations.json").toString();
 		boolean added_covid_record=false;
 		try {
@@ -371,6 +372,7 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 //	}
 	public boolean check_affected_date(String datetime_user, String datetime_declared) {
 		LocalDateTime odt_user = LocalDateTime.parse(datetime_user);
+		DateTimeFormatter dt=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 		LocalDateTime odt_officer = LocalDateTime.parse(datetime_declared);
 		return Duration.between( odt_officer, odt_user).toDays()<=14;
 	}
@@ -428,7 +430,6 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 						WatchKey key=null;
 						try{
 							key=watcher.take();
-							System.out.println("Client registered with watcher");
 						}
 						catch(InterruptedException ie) {
 							System.out.println("Thread interrupted; yielding");
@@ -591,14 +592,15 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 //			JSONObj1=(JSONArray)jparser.parse(fr);
 //			System.out.print(JSONObj);
 			si = new safe_entry_impl();
-//			DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter
-//	                .ofPattern("yyyy-MM-ddTHH:mm:ss");
-			
-			LocalDateTime odt_user = LocalDateTime.parse(LocalDateTime.now().toString());
-			System.out.println(LocalDateTime.now());
-			System.out.println(records_dir.toString());
+			DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter
+	                .ofPattern("yyyy-MM-dd HH:mm");
+			System.out.println(si.check_affected_date("2015-02-16T20:21:42.369671900", "2015-02-11T11:30"));
+//			si.declareLocationUnsafe("Seee", "2015-02-11T11:30");
+//			LocalDateTime odt_user = LocalDateTime.parse("2015-02-11T11:30");
+//			System.out.println(odt_user);
+//			System.out.println(records_dir.toString());
 //			si.watchFile();
-			si.checkIn(user);
+//			si.checkIn(user);
 //			si.checkOut(user1);
 		} catch (RemoteException e) {
 			// TODO Auto-generated catch block
