@@ -9,5 +9,9 @@
 	<classpathentry kind="lib" path="libraries/json-simple-1.1.1/json-simple-1.1.1-sources.jar"/>
 	<classpathentry kind="lib" path="libraries/json-simple-1.1.1/json-simple-1.1.1.jar"/>
 	<classpathentry kind="lib" path="libraries/json-simple-1.1.1/json-simple-1.1.1-javadoc.jar"/>
+	<classpathentry kind="lib" path="libraries/tempus-fugit/tempus-fugit-1.2-20140129.191141-5.jar"/>
+	<classpathentry kind="lib" path="libraries/tempus-fugit/tempus-fugit-1.2-20140129.191141-5-javadoc.jar"/>
+	<classpathentry kind="lib" path="libraries/tempus-fugit/tempus-fugit-1.2-20140129.191141-5-sources.jar"/>
+	<classpathentry kind="con" path="org.testng.TESTNG_CONTAINER"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

@@ -25,6 +25,7 @@ import java.util.Scanner;
 import java.util.TimeZone;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.json.simple.JSONArray;
@@ -32,276 +33,220 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
-public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject implements safe_entry{
+public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject implements safe_entry {
 	private RMIClientIntf c;
-	
-	protected safe_entry_impl() throws RemoteException {
+
+	public safe_entry_impl() throws RemoteException {
 		super();
 	}
-	ReadWriteLock file_lock=new ReentrantReadWriteLock();
-	ReadWriteLock declared_covid_locations_lock=new ReentrantReadWriteLock();
-	Lock write_lock=file_lock.writeLock();
-	Lock read_lock=file_lock.readLock();
-	Lock declared_covid_write=declared_covid_locations_lock.writeLock();
-	Lock declared_covid_read=declared_covid_locations_lock.readLock();
-	boolean write_success=true;
-	static String user_dir=System.getProperty("user.dir");
-	static Path records_dir=Paths.get(user_dir,"src","safe_entry_server","server_records");
-	boolean watch_file=true;
+
+	ReentrantLock file_lock = new ReentrantLock();
+	static ReadWriteLock declared_covid_locations_lock = new ReentrantReadWriteLock();
+
+	boolean is_writing = false;
+	static String user_dir = System.getProperty("user.dir");
+	static Path records_dir = Paths.get(user_dir, "src", "safe_entry_server", "server_records");
+	boolean watch_file = true;
 	static Long lastRead = 0L;
-	
+
 //	String latest_declared_location="";
 //	String latest_declared_datetime="";
 //	JSONArray locations_declared=new JSONArray();
 //	boolean file_change=false;
+	boolean checkedIn = false;
+	static int count = 0;
+	static Object obj_safe_entry_history_lock = new Object();
+	static Object obj_covid_file_lock = new Object();
+	boolean isReadWriting = false;
 
 	@Override
 	public boolean checkIn(JSONObject user) throws RemoteException {
-		JSONParser parser=new JSONParser();
-		JSONArray users=new JSONArray();
-		String filename=Paths.get(records_dir.toString(),"safe_entry_history.json").toString();
-		System.out.println("Writing to " + filename);
-		
+
+		String filename = Paths.get(records_dir.toString(), "safe_entry_history.json").toString();
+
 		try {
-			write_lock.lock();
-			write_success=false;
-			FileReader fr= new FileReader(filename);
-			if(!fr.equals(null)) {
-				users=(JSONArray) parser.parse(fr);
-				
+			synchronized (obj_safe_entry_history_lock) {
+
+				while (isReadWriting) {
+
+					obj_safe_entry_history_lock.wait();
+
+				}
+				isReadWriting = true;
+				JSONParser parser = new JSONParser();
+				JSONArray users = new JSONArray();
+				FileReader fr = new FileReader(filename);
+				File file = new File(filename);
+				if (file.length() != 0) {
+					users = (JSONArray) parser.parse(fr);
+
+				}
+
+				user.put("count", count++);
+				users.add(user);
+				System.out.println(user);
+
+//						System.out.print(users);
+				FileWriter file_writer = new FileWriter(filename);
+				file_writer.write(users.toJSONString());
+				file_writer.flush();
+				file_writer.close();
+				isReadWriting = false;
+				obj_safe_entry_history_lock.notifyAll();
+				checkedIn = true;
 			}
-			users.add(user);
-			
-//			System.out.print(users);
-			FileWriter file = new FileWriter(filename);
-			file.write(users.toJSONString());
-			file.flush();
-			file.close();
+
 		} catch (IOException | ParseException e) {
 			e.printStackTrace();
-			write_lock.unlock();
-			return false;
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			Thread.interrupted();
+			e.printStackTrace();
+		} finally {
+			is_writing = false;
+
 		}
-		finally {
-			write_success=true;
-			write_lock.unlock();
-		}
-		return true;
+
+		return checkedIn;
 	}
 
 	@Override
 	public boolean checkOut(JSONObject user) throws RemoteException {
-		// TODO Auto-generated method stub
-		JSONParser parser=new JSONParser();
-		JSONArray users=new JSONArray();
-		boolean foundUser=false;
-		String filename=Paths.get(records_dir.toString(),"safe_entry_history.json").toString();
-	
-		if(!user.get("check_out").equals("null")) {
+		boolean foundUser = false;
+		if (!user.get("check_out").equals("null")) {
 			try {
-				write_lock.lock();
-				FileReader fr= new FileReader(filename);
-				if(!fr.equals(null)) {
-					users=(JSONArray) parser.parse(fr);
-					System.out.print(users.get(users.size()-1));
-					for(int i=users.size()-1;i>0;i--) {
-						
-						JSONObject user_record=(JSONObject)users.get(i);
-						if(user_record.get("nric").equals(user.get("nric"))&& user_record.get("location").equals(user.get("location")) && user_record.get("check_out").equals("null")){
-							System.out.println(user_record.get("nric"));
-							
-							user_record.put("check_out",java.time.LocalDateTime.now().toString());
-							foundUser=true;
-							break;
+
+				synchronized (obj_safe_entry_history_lock) {
+
+					while (isReadWriting) {
+						try {
+							obj_safe_entry_history_lock.wait();
+						} catch (InterruptedException e) {
+							Thread.interrupted();
+							// TODO Auto-generated catch block
+							e.printStackTrace();
 						}
+
 					}
-	//				System.out.print(users);
-					FileWriter file = new FileWriter(filename);
-					file.write(users.toJSONString());
-					file.flush();
-					file.close();
-				}
-							
-			} catch (IOException | ParseException e) {
-				write_lock.unlock();
-				e.printStackTrace();
-				return false;
-			}
-			finally {
-				write_lock.unlock();
-			}
-		}
-		else {
-			System.out.print("There's no check out time");
-		}
-		return foundUser;
-	}
+					isReadWriting = true;
+					obj_safe_entry_history_lock.notifyAll();
+					JSONParser parser = new JSONParser();
+					JSONArray users = new JSONArray();
+					String filename = Paths.get(records_dir.toString(), "safe_entry_history.json").toString();
 
+					FileReader fr = new FileReader(filename);
+					File file = new File(filename);
+					if (file.length() != 0) {
+						users = (JSONArray) parser.parse(fr);
+						System.out.print(users.get(users.size() - 1));
+						for (int i = users.size() - 1; i > 0; i--) {
 
+							JSONObject user_record = (JSONObject) users.get(i);
+							if (user_record.get("nric").equals(user.get("nric"))
+									&& user_record.get("location").equals(user.get("location"))
+									&& user_record.get("check_out").equals("null")) {
+								System.out.println(user_record.get("nric"));
 
-	@Override
-	public boolean checkIn(JSONArray users) throws RemoteException {
-		// TODO Auto-generated method stub
-		JSONParser parser=new JSONParser();
-		JSONArray user_records=new JSONArray();
-		boolean updated_file=false;
-		String filename=Paths.get(records_dir.toString(),"safe_entry_history.json").toString();
-	
-		if(!users.equals(null)) {
-			try {
-				write_lock.lock();
-				FileReader fr= new FileReader(filename);
-				user_records=(JSONArray) parser.parse(fr);
-				user_records.addAll(users);
-//				System.out.print(user_records);
-				FileWriter file = new FileWriter(filename);
-				file.write(user_records.toJSONString());
-				file.flush();
-				file.close();
-				updated_file=true;
-			} catch (IOException | ParseException e) {
-				write_lock.unlock();
-				e.printStackTrace();
-				return false;
-			}
-			finally {
-				write_lock.unlock();
-			}
-		}
-		else {
-			System.out.print("There's no users");
-			return false;
-		}
-		return updated_file;
-	}
-
-	@Override
-	public boolean checkOut(JSONArray users) throws RemoteException {
-		JSONParser parser=new JSONParser();
-		JSONArray user_records=new JSONArray();
-		boolean foundUser=false;
-//		String filename="C:\\Users\\cht47\\OneDrive - Singapore Institute Of Technology\\Lessons\\Year 2 Sem 3\\Cloud Computing\\Lab_Assessment\\safe_entry_history.json";
-		String filename=Paths.get(records_dir.toString(),"safe_entry_history.json").toString();
-		if(!users.equals(null)) {
-			try {
-				write_lock.lock();
-				FileReader fr= new FileReader(filename);
-				if(!fr.equals(null)) {
-					user_records=(JSONArray) parser.parse(fr);    
-					System.out.print(users.get(users.size()-1));
-					for(Object o:users) {
-						for(int i=user_records.size()-1;i>0;i--) {
-							JSONObject user=(JSONObject) o;
-							JSONObject user_record=(JSONObject) user_records.get(i);
-							if(user_record.get("nric").equals((user.get("nric")))&& user_record.get(i).equals("null")) {
-								user_record.put("check_out",user.get("check_out"));
-								foundUser=true;
+								user_record.put("check_out", java.time.LocalDateTime.now().toString());
+								foundUser = true;
+								break;
 							}
 						}
+						// System.out.print(users);
+						FileWriter file_writer = new FileWriter(filename);
+						file_writer.write(users.toJSONString());
+						file_writer.flush();
+						file_writer.close();
+						isReadWriting = false;
+						obj_safe_entry_history_lock.notifyAll();
 					}
-				
-//				System.out.print(users);
-				FileWriter file = new FileWriter(filename);
-				file.write(user_records.toJSONString());
-				file.flush();
-				file.close();
+
 				}
 			} catch (IOException | ParseException e) {
-				write_lock.unlock();
+
 				e.printStackTrace();
-				return false;
 			}
-			finally {
-				write_lock.unlock();
-			}
+		} else {
+			System.out.print("There's no check out time");
 		}
-		else {
-			System.out.print("There's no users");
-			return false;
-		}
+		// TODO Auto-generated method stub
+
 		return foundUser;
 	}
-
-
-
 
 	@Override
 	public JSONArray getInfo() throws RemoteException {
-		
-		// TODO Auto-generated method stub
-		JSONParser parser=new JSONParser();
-		JSONArray users=new JSONArray();
-		String filename="C:\\Users\\cht47\\OneDrive - Singapore Institute Of Technology\\Lessons\\Year 2 Sem 3\\Cloud Computing\\Lab_Assessment\\safe_entry_history.json";
+		JSONArray users = new JSONArray();
 		try {
-			read_lock.lock();
-			FileReader fr= new FileReader(filename);
-			if(!fr.equals(null)) {
-				users=(JSONArray) parser.parse(fr);
+			file_lock.lock();
+			// TODO Auto-generated method stub
+			JSONParser parser = new JSONParser();
+			String filename = "C:\\Users\\cht47\\OneDrive - Singapore Institute Of Technology\\Lessons\\Year 2 Sem 3\\Cloud Computing\\Lab_Assessment\\safe_entry_history.json";
+
+			FileReader fr = new FileReader(filename);
+			if (!fr.equals(null)) {
+				users = (JSONArray) parser.parse(fr);
 			}
 		} catch (IOException | ParseException e) {
-			write_lock.unlock();
+			file_lock.unlock();
 			e.printStackTrace();
 			return null;
+		} finally {
+			file_lock.unlock();
 		}
-		finally {
-			read_lock.unlock();
-		}
-		
+
 		return users;
 	}
 
 	@Override
 	public JSONArray getInfo(String nric) throws RemoteException {
-		JSONParser parser=new JSONParser();
-		JSONArray users=new JSONArray();
-		String filename="C:\\Users\\cht47\\OneDrive - Singapore Institute Of Technology\\Lessons\\Year 2 Sem 3\\Cloud Computing\\Lab_Assessment\\safe_entry_history.json";
-		JSONArray records=new JSONArray();
-		if(!nric.equals("null")) {
+		JSONParser parser = new JSONParser();
+		JSONArray users = new JSONArray();
+		String filename = "C:\\Users\\cht47\\OneDrive - Singapore Institute Of Technology\\Lessons\\Year 2 Sem 3\\Cloud Computing\\Lab_Assessment\\safe_entry_history.json";
+		JSONArray records = new JSONArray();
+		if (!nric.equals("null")) {
 			try {
-				read_lock.lock();
-				FileReader fr= new FileReader(filename);
-				if(!fr.equals(null)) {
-					users=(JSONArray) parser.parse(fr);
-					for(Object o:users) {
-						JSONObject user_record=(JSONObject) o;
-						if(nric.equals(user_record.get("nric"))){
+				file_lock.lock();
+				FileReader fr = new FileReader(filename);
+				if (!fr.equals(null)) {
+					users = (JSONArray) parser.parse(fr);
+					for (Object o : users) {
+						JSONObject user_record = (JSONObject) o;
+						if (nric.equals(user_record.get("nric"))) {
 							records.add(user_record);
 						}
 					}
 				}
-			
+
 			} catch (IOException | ParseException e) {
-				write_lock.unlock();
 				e.printStackTrace();
 				return null;
-			}
-			finally {
-				read_lock.unlock();
+			} finally {
+				file_lock.unlock();
 			}
 		}
 		return records;
-			
+
 	}
 
 	@Override
 	public boolean checkLogin(String name, String password) throws RemoteException {
-		JSONParser parser=new JSONParser();
-		JSONArray officers=new JSONArray();
-		String filename=Paths.get(records_dir.toString(),"user_officers.json").toString();
-		boolean loggedIn=false;
+		JSONParser parser = new JSONParser();
+		JSONArray officers = new JSONArray();
+		String filename = Paths.get(records_dir.toString(), "user_officers.json").toString();
+		boolean loggedIn = false;
 		try {
-			FileReader fr= new FileReader(filename);
-				officers=(JSONArray) parser.parse(fr);
-				for(Object o:officers) {
-					JSONObject officer=(JSONObject) o;
-					if(officer.get("name").equals(name) && officer.get("password").equals(password)) {
-						System.out.print("Officer account found! Login success");
-						loggedIn=true;
-						break;
-					}
+			FileReader fr = new FileReader(filename);
+			officers = (JSONArray) parser.parse(fr);
+			for (Object o : officers) {
+				JSONObject officer = (JSONObject) o;
+				if (officer.get("name").equals(name) && officer.get("password").equals(password)) {
+					System.out.print("Officer account found! Login success");
+					loggedIn = true;
+					break;
 				}
-			
-			
+			}
+
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -312,35 +257,52 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		
+
 		return loggedIn;
 	}
 
 	@Override
-	public boolean declareLocationUnsafe(String locationName, String dateTime) throws RemoteException  {
-		JSONArray covid_records=new JSONArray();
-		JSONParser parser=new JSONParser();
-		JSONObject covid_record=new JSONObject();
-		covid_record.put("location", locationName);
-		DateTimeFormatter dt=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-		LocalDateTime ldt=LocalDateTime.parse(dateTime, dt);
-		covid_record.put("date_time", ldt.toString());
-		String filename=Paths.get(records_dir.toString(),"declared_covid_locations.json").toString();
-		boolean added_covid_record=false;
+	public boolean declareLocationUnsafe(String locationName, String dateTime) throws RemoteException {
+		boolean added_covid_record = false;
 		try {
+
+			synchronized (obj_covid_file_lock) {
+
+				while (isReadWriting) {
+					try {
+						obj_covid_file_lock.wait();
+					} catch (InterruptedException e) {
+						Thread.interrupted();
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+				isReadWriting = true;
+				obj_covid_file_lock.notifyAll();
+				JSONArray covid_records = new JSONArray();
+				JSONParser parser = new JSONParser();
+				JSONObject covid_record = new JSONObject();
+				covid_record.put("location", locationName);
+				DateTimeFormatter dt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+				LocalDateTime ldt = LocalDateTime.parse(dateTime, dt);
+				covid_record.put("date_time", ldt.toString());
+				String filename = Paths.get(records_dir.toString(), "declared_covid_locations.json").toString();
+
+				FileReader fr = new FileReader(filename);
+				File file = new File(filename);
+				if (file.length() != 0) {
+					covid_records = (JSONArray) parser.parse(fr);
+				}
+				covid_records.add(covid_record);
+				FileWriter file_writer = new FileWriter(filename);
+				file_writer.write(covid_records.toJSONString());
+				file_writer.flush();
+				file_writer.close();
+				isReadWriting = false;
+				obj_covid_file_lock.notifyAll();
+				added_covid_record = true;
+			}
 			
-			FileReader fr= new FileReader(filename);
-			
-				covid_records=(JSONArray) parser.parse(fr);
-			
-			covid_records.add(covid_record);
-			declared_covid_write.lock();
-			FileWriter file = new FileWriter(filename);
-			file.write(covid_records.toJSONString());
-			file.flush();
-			file.close();
-			
-			added_covid_record=true;
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -351,12 +313,9 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		finally {
-			declared_covid_write.unlock();
-		}
 		return added_covid_record;
 	}
-	
+
 //	public boolean trackCovid(RMIClientIntf client, String nric) throws RemoteException {
 //		
 //		JSONArray affected_users=getListAffectedUsers();
@@ -372,30 +331,31 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 //	}
 	public boolean check_affected_date(String datetime_user, String datetime_declared) {
 		LocalDateTime odt_user = LocalDateTime.parse(datetime_user);
-		DateTimeFormatter dt=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+		DateTimeFormatter dt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 		LocalDateTime odt_officer = LocalDateTime.parse(datetime_declared);
-		return Duration.between( odt_officer, odt_user).toDays()<=14;
+		return Duration.between(odt_officer, odt_user).toDays() <= 14;
 	}
+
 	public JSONArray getListAffectedUsers(String latest_declared_location, String latest_declared_datetime) {
-		
-		JSONArray users=new JSONArray();
-		JSONArray users_affected=new JSONArray();
-		JSONParser parser=new JSONParser();
+
+		JSONArray users = new JSONArray();
+		JSONArray users_affected = new JSONArray();
+		JSONParser parser = new JSONParser();
 //		String filename="C:\\Users\\cht47\\OneDrive - Singapore Institute Of Technology\\Lessons\\Year 2 Sem 3\\Cloud Computing\\Lab_Assessment\\safe_entry_history.json";
 		try {
-			String filename=Paths.get(records_dir.toString(),"safe_entry_history.json").toString();
-			FileReader fr=  new FileReader(filename);
-			users=(JSONArray) parser.parse(fr);
-			for(Object o:users) {
-				JSONObject user=(JSONObject) o;
-				if(user.get("location").equals(latest_declared_location) && check_affected_date((String)user.get("check_in"), latest_declared_datetime)) {
+			String filename = Paths.get(records_dir.toString(), "safe_entry_history.json").toString();
+			FileReader fr = new FileReader(filename);
+			users = (JSONArray) parser.parse(fr);
+			for (Object o : users) {
+				JSONObject user = (JSONObject) o;
+				if (user.get("location").equals(latest_declared_location)
+						&& check_affected_date((String) user.get("check_in"), latest_declared_datetime)) {
 					System.out.print("Found user is being affected.");
 					users_affected.add(user);
-					
+
 				}
 			}
-			
-			
+
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -406,170 +366,176 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		
+
 		return users_affected;
 	}
-	public void stopWatcher() {watch_file=false;}
-	public void informUsers(RMIClientIntf client, String nric) throws RemoteException{
-		c=client;
-		
-		Thread thread=new Thread(new Runnable(){
-			
+
+	public void stopWatcher() {
+		watch_file = false;
+	}
+
+	public void informUsers(RMIClientIntf client, String nric) throws RemoteException {
+		c = client;
+
+		Thread thread = new Thread(new Runnable() {
+
 			@Override
 			public void run() {
 				Random rg = new Random();
 				int timer = rg.nextInt(1000);
-			    try {
-					WatchService watcher=(WatchService) FileSystems.getDefault().newWatchService();
+				try {
+					WatchService watcher = (WatchService) FileSystems.getDefault().newWatchService();
 					records_dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
-					JSONArray covid_records=new JSONArray();
-					JSONObject covid_record=new JSONObject();
-					JSONParser parser=new JSONParser();
-					String filename=Paths.get(records_dir.toString(),"declared_covid_locations.json").toString();
-					while(watch_file) {
-						WatchKey key=null;
-						try{
-							key=watcher.take();
-						}
-						catch(InterruptedException ie) {
+					JSONArray covid_records = new JSONArray();
+					JSONObject covid_record = new JSONObject();
+					JSONParser parser = new JSONParser();
+					String filename = Paths.get(records_dir.toString(), "declared_covid_locations.json").toString();
+					while (watch_file) {
+						WatchKey key = null;
+						try {
+							key = watcher.take();
+						} catch (InterruptedException ie) {
 							System.out.println("Thread interrupted; yielding");
 							Thread.yield();
 							continue;
 						}
-						for(WatchEvent<?> event : key.pollEvents()) {
-							 WatchEvent<Path> event_path = (WatchEvent<Path>) event;
-							 Path files=event_path.context();
-							 if(files.endsWith("declared_covid_locations.json")) {
+						for (WatchEvent<?> event : key.pollEvents()) {
+							WatchEvent<Path> event_path = (WatchEvent<Path>) event;
+							Path files = event_path.context();
+							if (files.endsWith("declared_covid_locations.json")) {
 								FileReader fr;
 								try {
-									Long lastWriteTime = new File(Paths.get(records_dir.toString(),"declared_covid_locations.json").toString()).lastModified();
+									Long lastWriteTime = new File(Paths
+											.get(records_dir.toString(), "declared_covid_locations.json").toString())
+													.lastModified();
 									System.out.println(lastWriteTime);
 									System.out.println(lastRead);
-								    if (!Objects.equals(lastWriteTime, lastRead))
-								    {
+									if (!Objects.equals(lastWriteTime, lastRead)) {
 										fr = new FileReader(filename);
-										covid_records=(JSONArray) parser.parse(fr);
-										covid_record=(JSONObject) covid_records.get(covid_records.size()-1);
-										String latest_declared_datetime=(String) covid_record.get("date_time");
-										String latest_declared_location=(String) covid_record.get("location");
+										covid_records = (JSONArray) parser.parse(fr);
+										covid_record = (JSONObject) covid_records.get(covid_records.size() - 1);
+										String latest_declared_datetime = (String) covid_record.get("date_time");
+										String latest_declared_location = (String) covid_record.get("location");
 										System.out.println(latest_declared_datetime);
 //										System.out.println(lastWriteTime);
 										System.out.print("Detected new records entered.");
-										JSONArray affected_users=getListAffectedUsers(latest_declared_location,latest_declared_datetime);
+										JSONArray affected_users = getListAffectedUsers(latest_declared_location,
+												latest_declared_datetime);
 										System.out.println(affected_users);
-								        lastRead = lastWriteTime;
-								        c.callBack(affected_users,latest_declared_datetime);
-								    }
+										lastRead = lastWriteTime;
+										c.callBack(affected_users, latest_declared_datetime);
+									}
 
-										
-									
 								} catch (IOException | ParseException e) {
 									// TODO Auto-generated catch block
 									e.printStackTrace();
-								} 
+								}
 
-							 }
-							
+							}
+
 						}
-						if(!key.reset()) {
+						if (!key.reset()) {
 							System.out.print("File cannot be found");
 							break;
 						}
 					}
-			
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			} 
-		}
-				
+
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+
 		});
 		thread.start();
 		return;
 
 	}
-	public void watchFile() throws RemoteException{
-		Thread thread=new Thread(new Runnable(){
-			
+
+	public void watchFile() throws RemoteException {
+		Thread thread = new Thread(new Runnable() {
+
 			@Override
 			public void run() {
 				Random rg = new Random();
 				int timer = rg.nextInt(1000);
-			    try {
-			    	String filename=Paths.get(records_dir.toString(),"declared_covid_locations.json").toString();
-					WatchService watcher=(WatchService) FileSystems.getDefault().newWatchService();
+				try {
+					String filename = Paths.get(records_dir.toString(), "declared_covid_locations.json").toString();
+					WatchService watcher = (WatchService) FileSystems.getDefault().newWatchService();
 					records_dir.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
 
-					while(watch_file) {
-						WatchKey key=null;
-						try{key=watcher.take();
-						System.out.println("Watching file");
+					while (watch_file) {
+						WatchKey key = null;
+						try {
+							key = watcher.take();
+							System.out.println("Watching file");
 						}
-						
-						catch(InterruptedException ie) {
+
+						catch (InterruptedException ie) {
 							Thread.yield();
 							System.out.println("Thread interrupted");
 							continue;
 						}
-						for(WatchEvent<?> event : key.pollEvents()) {
-							 WatchEvent<Path> event_path = (WatchEvent<Path>) event;
-							 Path files=event_path.context();
-							 if(files.endsWith("declared_covid_locations.json")) {
+						for (WatchEvent<?> event : key.pollEvents()) {
+							WatchEvent<Path> event_path = (WatchEvent<Path>) event;
+							Path files = event_path.context();
+							if (files.endsWith("declared_covid_locations.json")) {
 								FileReader fr;
-								fr = new FileReader(Paths.get(records_dir.toString(),"declared_covid_locations.json").toString());
+								fr = new FileReader(
+										Paths.get(records_dir.toString(), "declared_covid_locations.json").toString());
 								System.out.println(filename);
-									try {
-										
-											JSONArray covid_records=new JSONArray();
-											JSONObject covid_record=new JSONObject();
-											JSONParser parser=new JSONParser();
-											covid_records=(JSONArray) parser.parse(fr);
-										
-										
-									} catch (ParseException e) {
-										// TODO Auto-generated catch block
-										e.printStackTrace();
-									}
+								try {
+
+									JSONArray covid_records = new JSONArray();
+									JSONObject covid_record = new JSONObject();
+									JSONParser parser = new JSONParser();
+									covid_records = (JSONArray) parser.parse(fr);
+
+								} catch (ParseException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								}
 //									covid_record=(JSONObject) covid_records.get(1);
 ////									System.out.println( covid_record.get("nric"));
 //									String latest_declared_datetime=(String) covid_record.get("date_time");
 //									String latest_declared_location=(String) covid_record.get("location");
 //									System.out.print("Detected new records entered.");
-									//JSONArray affected_users=getListAffectedUsers(latest_declared_location,latest_declared_datetime);
+								// JSONArray
+								// affected_users=getListAffectedUsers(latest_declared_location,latest_declared_datetime);
 //									Thread.sleep(timer);
-								
 
-								 System.out.println("File changed");
-							 }
-							 System.out.println(files);
-							
+								System.out.println("File changed");
+							}
+							System.out.println(files);
+
 						}
-						if(!key.reset()) {
+						if (!key.reset()) {
 							System.out.print("File cannot be found");
 							break;
 						}
 					}
-			
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			} 
-		}
-				
+
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+
 		});
 		thread.start();
 		return;
 
 	}
-	public static void main(String args[]) {
-		JSONParser jparser=new JSONParser();
-		JSONObject user=new JSONObject();
-//		JSONArray user1=new JSONArray();
-		String userInfo="[{\"check_out\":\"null\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jon\",\"location\":\"Hell\",\"nric\":\"S992222R\"},{\"check_out\":\"null\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"null\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"2021-06-10T14:03:34.343506900\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"David\",\"location\":\"Canyon\",\"nric\":\"S9922535R\"}]";
-		String userInfo1="[{\"check_out\":\"2016-04-12T13:37:27+00:00\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jon\",\"location\":\"Hell\",\"nric\":\"S992222R\"},{\"check_out\":\"2016-04-12T13:37:27+00:00\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"2016-04-12T13:37:27+00:00\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"2021-06-10T14:03:34.343506900\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"David\",\"location\":\"Canyon\",\"nric\":\"S9922535R\"}]";
 
-				user.put("nric", "S9922535R");
-		user.put("location","Canyon");
+	public static void main(String args[]) {
+		JSONParser jparser = new JSONParser();
+		JSONObject user = new JSONObject();
+//		JSONArray user1=new JSONArray();
+		String userInfo = "[{\"check_out\":\"null\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jon\",\"location\":\"Hell\",\"nric\":\"S992222R\"},{\"check_out\":\"null\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"null\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"2021-06-10T14:03:34.343506900\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"David\",\"location\":\"Canyon\",\"nric\":\"S9922535R\"}]";
+		String userInfo1 = "[{\"check_out\":\"2016-04-12T13:37:27+00:00\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jon\",\"location\":\"Hell\",\"nric\":\"S992222R\"},{\"check_out\":\"2016-04-12T13:37:27+00:00\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"2016-04-12T13:37:27+00:00\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"Jonel\",\"location\":\"Hell\",\"nric\":\"S9922333R\"},{\"check_out\":\"2021-06-10T14:03:34.343506900\",\"check_in\":\"2016-04-12T13:37:27+00:00\",\"name\":\"David\",\"location\":\"Canyon\",\"nric\":\"S9922535R\"}]";
+
+		user.put("nric", "S9922535R");
+		user.put("location", "Canyon");
 		user.put("name", "David");
 		user.put("check_in", "2016-04-12T13:37:27+00:00");
 		user.put("check_out", "null");
@@ -592,8 +558,7 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 //			JSONObj1=(JSONArray)jparser.parse(fr);
 //			System.out.print(JSONObj);
 			si = new safe_entry_impl();
-			DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter
-	                .ofPattern("yyyy-MM-dd HH:mm");
+			DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 			System.out.println(si.check_affected_date("2015-02-16T20:21:42.369671900", "2015-02-11T11:30"));
 //			si.declareLocationUnsafe("Seee", "2015-02-11T11:30");
 //			LocalDateTime odt_user = LocalDateTime.parse("2015-02-11T11:30");
@@ -605,12 +570,11 @@ public class safe_entry_impl extends java.rmi.server.UnicastRemoteObject impleme
 		} catch (RemoteException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		}catch (IOException e) {
+		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		} 
-		
-	}
+		}
 
+	}
 
 }

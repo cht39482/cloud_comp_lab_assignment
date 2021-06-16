@@ -206,12 +206,19 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 				if(se.checkLogin(user_name, password)) {
 					System.out.print("Enter location name for covid alert:");
 					String location=scan.nextLine();
-					System.out.print("Enter date of covid alert (dd-mm-yyyy):");
+					System.out.print("Enter date of covid alert (yyyy-mm-dd):");
 					String covid_alert_date=scan.nextLine();
 					System.out.print("Enter time of covid alert (HH:mm):");
 					String covid_alert_time=scan.nextLine();
 					String covid_alert_dateTime=covid_alert_date+" "+covid_alert_time;
-					se.declareLocationUnsafe(location, covid_alert_dateTime);
+					boolean result=se.declareLocationUnsafe(location, covid_alert_dateTime);
+					if(result) {
+						System.out.println("Covid alert successfully added to records!");
+					}
+		
+				}
+				else {
+					System.out.println("Login failed!");
 				}
 				
 				
