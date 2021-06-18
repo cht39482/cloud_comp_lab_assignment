@@ -25,6 +25,7 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 	static String user_dir=System.getProperty("user.dir");
 	static Path records_dir=Paths.get(user_dir,"src","safe_entry_client","client_records");
 	static JSONArray user_details=new JSONArray();
+	static safe_entry se;
 	public SafeEntry_Client() throws RemoteException {
 
 	}
@@ -44,7 +45,7 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 		}
 		try {
 			SafeEntry_Client sc = new SafeEntry_Client();
-			safe_entry se=(safe_entry)Naming.lookup("rmi://" + reg_host + ":" + reg_port + "/SafeEntryService");
+			se=(safe_entry)Naming.lookup("rmi://" + reg_host + ":" + reg_port + "/SafeEntryService");
 			System.out.println("Connected to server");
 		JSONObject user=new JSONObject();
 		JSONObject user_record=new JSONObject();
@@ -63,26 +64,13 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 				System.out.println("How do you want to check in / check out today?");
 				System.out.println("1. Individually");
 				System.out.println("2. Group");
+				System.out.println("3. View History");
 				
-				JSONParser jparser=new JSONParser();
-				File file_data=new File(Paths.get(records_dir.toString(),"Data.json").toString());
-				if(file_data.length()!=0) {
-					try(FileReader file = new FileReader(Paths.get(records_dir.toString(),"Data.json").toString())){
-							user_details=(JSONArray) jparser.parse(file);
-							
-					} catch (FileNotFoundException e1) {
-						// TODO Auto-generated catch block
-						e1.printStackTrace();
-					} catch (IOException e1) {
-						// TODO Auto-generated catch block
-						e1.printStackTrace();
-					} catch (ParseException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
+			
+				user_details=readFile();
 				int choice = getChoice();
 				if (choice == 1) {
+
 					System.out.println("Enter your name: ");
 					String input_name = scan.nextLine();
 					System.out.println(input_name);
@@ -103,34 +91,32 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 						entry_details.put("check_out", "null");
 						se.checkIn(entry_details);
 						user_details.add(entry_details);
+						
 	
 					} else {
 						String check_out_datetime=LocalDateTime.now().toString();
 						entry_details.put("check_out",check_out_datetime);
 						se.checkOut(entry_details);
+						user_details=readFile();
 						for(int i=user_details.size()-1;i>0;i--) {
 							user_record=(JSONObject)user_details.get(i) ;
+
 							if(user_record.get("nric").equals(input_nric) && user_record.get("check_out").equals("null") && user_record.get("location").equals(input_location)) {
-								user.put("check_out", check_out_datetime);
-								System.out.println("User"+user.get("name")+" is checking out...");
+								user_record.put("check_out", check_out_datetime);
+								System.out.println("User "+user_record.get("name")+" is checking out...");
 								break;
 							}
 						}
 						
 					}
-					// Write JSON file
-					try (FileWriter file = new FileWriter(Paths.get(records_dir.toString(),"Data.json").toString())) {
-						// We can write any JSONArray or JSONObject instance to the file
-						file.write(user_details.toJSONString());
-						file.flush();
-					} catch (IOException e) {
-						System.out.println("Unable to write into json file");
-						e.printStackTrace();
+					if(writeFile()) {
+						System.out.println("Check out information saved");
 					}
-	
-				} else {
-					JSONArray user_info=new JSONArray();
 					
+	
+				} else if (choice==2){
+					JSONArray user_info=new JSONArray();
+
 					System.out.println("Enter number of people you want to check-in / check-out with: ");
 					int number = Integer.parseInt(scan.nextLine());
 					for (int i = 0; i < number; i++) {
@@ -155,7 +141,6 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 					if (checkin_checkout == 1) {
 						for(Object o:user_info) {
 							user=(JSONObject) o;
-	//						System.out.println(user.get("nric"));
 							user.put("location", input_location);
 							user.put("check_in", LocalDateTime.now().toString());
 							user.put("check_out", "null");
@@ -173,7 +158,7 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 								if(user.get("nric").equals(user_record.get("nric")) && user_record.get("location").equals(input_location) && user_record.get("check_out").equals("null")) {
 									System.out.println("Found user");
 									user_record.put("check_out",check_out_time);
-									System.out.println("User"+user.get("name")+" is checking out...");
+									System.out.println("User "+user.get("name")+" is checking out...");
 									break;
 								}
 								
@@ -185,16 +170,22 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 						}
 					}
 					
-	
-					// Write JSON file
-					try (FileWriter file = new FileWriter(Paths.get(records_dir.toString(),"Data.json").toString())) {
-						// We can write any JSONArray or JSONObject instance to the file
-							file.write(user_details.toJSONString());
-						file.flush();
-					} catch (IOException e) {
-						System.out.println("Unable to write into json file");
-						e.printStackTrace();
+					if(writeFile()) {
+						System.out.println("Check out information saved");
 					}
+					
+				}
+				else if (choice==3) {
+					
+					System.out.println("Enter your nric:");
+					String nric=scan.nextLine();
+					updateFile(nric);
+					JSONArray local_data=readFile();
+		
+					JSONArray user_data=getUserRecords(nric,local_data);
+					System.out.println(user_data);
+					
+					
 				}
 			}
 			else if (user_type==2) {
@@ -238,19 +229,86 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 			System.out.println(nbe);
 		}
 	}
+	public static boolean updateFile(String nric) {
+		try {
+			JSONArray records=se.getInfo(nric);
+			JSONArray user_local_data=readFile();
+			JSONArray add_records=new JSONArray();
+			for(Object o:user_local_data) {
+				JSONObject jo=(JSONObject) o;
+				for(Object c:records) {
+					JSONObject jor=(JSONObject) c;
+					
+					if(!jo.get("check_out").toString().contains(jor.get("check_in").toString().substring(0, 18))) {
+						add_records.add(jor);
+						
+					}
+				}
+			}
+			user_local_data.addAll(add_records);
 
-	private static Object getTime() {
-		// TODO Auto-generated method stub
+			FileWriter file = new FileWriter(Paths.get(records_dir.toString(),"Data.json").toString());
+				// We can write any JSONArray or JSONObject instance to the file
+
+			file.write(user_local_data.toString());
+			file.flush();
+			file.close();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 		
 		
-		return null;
+		return false;
+		
+	}
+	public static JSONArray getUserRecords(String nric,JSONArray records) {
+		JSONArray users=new JSONArray();
+		for(Object o:records) {
+			JSONObject jobj=(JSONObject) o;
+			if(jobj.get("nric").equals(nric)) {
+				users.add(jobj);
+				
+			}
+		}
+		return users;
+	}
+	
+	public static JSONArray readFile() {
+		JSONParser jparser=new JSONParser();
+		JSONArray users=new JSONArray();
+		File file_data=new File(Paths.get(records_dir.toString(),"Data.json").toString());
+		if (file_data.length() != 0) {
+			try {
+				FileReader fr = new FileReader(Paths.get(records_dir.toString(),"Data.json").toString());
+				users = (JSONArray) jparser.parse(fr);
+			} catch (IOException | ParseException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		return users;
+	}
+	public static boolean writeFile() {
+		boolean written=false;
+		// Write JSON file
+		try (FileWriter file = new FileWriter(Paths.get(records_dir.toString(),"Data.json").toString())) {
+			// We can write any JSONArray or JSONObject instance to the file
+				file.write(user_details.toJSONString());
+			file.flush();
+			written=true;
+		} catch (IOException e) {
+			System.out.println("Unable to write into json file");
+			e.printStackTrace();
+		}
+		return written;
 	}
 
 	public static int getChoice() {
 		try {
 			System.out.print("Enter choice:");
 			int input = Integer.parseInt(scan.nextLine());
-			if (input < 1 || input > 2)
+			if (input < 1 || input > 3)
 				throw new Exception();
 			return input;
 		} catch (Exception e) {
