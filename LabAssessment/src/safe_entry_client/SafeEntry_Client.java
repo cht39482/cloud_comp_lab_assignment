@@ -92,7 +92,10 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 						se.checkIn(entry_details);
 						user_details.add(entry_details);
 						
-	
+						
+						if(writeFile()) {
+							System.out.println("Check in  information saved");
+						}
 					} else {
 						String check_out_datetime=LocalDateTime.now().toString();
 						entry_details.put("check_out",check_out_datetime);
@@ -108,9 +111,9 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 							}
 						}
 						
-					}
-					if(writeFile()) {
-						System.out.println("Check out information saved");
+						if(writeFile()) {
+							System.out.println("Check out information saved");
+						}
 					}
 					
 	
@@ -147,6 +150,9 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 							se.checkIn(user);
 							user_details.add(user);
 						}
+						if(writeFile()) {
+							System.out.println("Check in information saved");
+						}
 					}
 					else if (checkin_checkout==2){
 						for(Object o:user_info) {
@@ -168,18 +174,18 @@ public class SafeEntry_Client extends java.rmi.server.UnicastRemoteObject implem
 							se.checkOut(user);
 							
 						}
+						if(writeFile()) {
+							System.out.println("Check out information saved");
+						}
 					}
 					
-					if(writeFile()) {
-						System.out.println("Check out information saved");
-					}
 					
 				}
 				else if (choice==3) {
 					
 					System.out.println("Enter your nric:");
 					String nric=scan.nextLine();
-					updateFile(nric);
+//					updateFile(nric);
 					JSONArray local_data=readFile();
 		
 					JSONArray user_data=getUserRecords(nric,local_data);
